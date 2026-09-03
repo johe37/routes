@@ -24,6 +24,17 @@ ORS_API_KEY=your_key_here
 
 The key stays on the server. The browser only talks to `/api/generate`.
 
+## Docker
+
+```bash
+docker build -t johe37/route-generator .
+docker run --rm -p 3000:3000 -e ORS_API_KEY=your_key_here johe37/route-generator
+```
+
+`ORS_API_KEY` is optional and read at runtime.
+
+GitHub Actions builds the image on every push and pull request. Pushing a git tag builds and publishes `johe37/route-generator:<tag>` and `:latest` to Docker Hub. Add a `DOCKERHUB_TOKEN` repository secret (a Docker Hub access token for `johe37`).
+
 ## Stack
 
 - Next.js App Router
