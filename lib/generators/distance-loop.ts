@@ -1,12 +1,15 @@
-import { bboxOf } from "@/lib/geo/geodesic";
+import {
+  loopCandidateScore,
+  loopDistanceOk,
+  loopShapeOk,
+  refineLoopGeometry,
+  toLoopRoute,
+} from "@/lib/geo/loop-shape";
 import type { GeneratedRoute, RouteGenerator } from "@/lib/generators/types";
 import { roundTrip } from "@/lib/ors/client";
 import { lengthFactors, roundTripPoints } from "@/lib/ors/profiles";
 import { osrmLoop } from "@/lib/osrm/street-loop";
 import { hasOrsKey } from "@/lib/routing/provider";
-
-const ACCEPT_LOW = 0.88;
-const ACCEPT_HIGH = 1.12;
 
 export const distanceLoopGenerator: RouteGenerator = {
   id: "distance-loop",
@@ -20,7 +23,7 @@ export const distanceLoopGenerator: RouteGenerator = {
     const factors = lengthFactors(input.activity, input.targetMeters);
     const points = roundTripPoints(input.activity, input.targetMeters);
     let best: GeneratedRoute | null = null;
-    let bestDelta = Infinity;
+    let bestScore = Infinity;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const reqLength = Math.round(input.targetMeters * factors[attempt]);
@@ -32,26 +35,32 @@ export const distanceLoopGenerator: RouteGenerator = {
         points,
         seed,
       });
-      const route: GeneratedRoute = {
-        id: crypto.randomUUID(),
-        geometry: { type: "LineString", coordinates: ors.coordinates },
-        bbox: ors.bbox ?? bboxOf(ors.coordinates),
-        distanceMeters: ors.summary.distance,
-        activity: input.activity,
-        shape: "loop",
-        seed,
-        provider: "ors",
-        attempts: attempt + 1,
-        distanceSoftMiss: false,
-        warnings: [],
-      };
-      const delta = Math.abs(route.distanceMeters - input.targetMeters);
-      if (delta < bestDelta) {
+      const refined = refineLoopGeometry(ors.coordinates, ors.summary.distance);
+      if (!refined) continue;
+      const route = toLoopRoute(
+        {
+          id: crypto.randomUUID(),
+          activity: input.activity,
+          shape: "loop",
+          seed,
+          provider: "ors",
+          attempts: attempt + 1,
+        },
+        refined,
+      );
+      const score = loopCandidateScore(
+        route.distanceMeters,
+        input.targetMeters,
+        refined.retraceRatio,
+      );
+      if (score < bestScore) {
         best = route;
-        bestDelta = delta;
+        bestScore = score;
       }
-      const ratio = route.distanceMeters / input.targetMeters;
-      if (ratio >= ACCEPT_LOW && ratio <= ACCEPT_HIGH) {
+      if (
+        loopDistanceOk(route.distanceMeters, input.targetMeters) &&
+        loopShapeOk(refined.retraceRatio)
+      ) {
         return route;
       }
     }
@@ -62,10 +71,10 @@ export const distanceLoopGenerator: RouteGenerator = {
     return {
       ...best,
       attempts: 3,
-      distanceSoftMiss: true,
-      warnings: [
-        "Closest loop we found. Try Regenerate or Out-and-back.",
-      ],
+      distanceSoftMiss: !loopDistanceOk(best.distanceMeters, input.targetMeters),
+      warnings: loopDistanceOk(best.distanceMeters, input.targetMeters)
+        ? []
+        : ["Closest loop we found. Try Regenerate or Out-and-back."],
     };
   },
 };

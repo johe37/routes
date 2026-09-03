@@ -41,6 +41,7 @@ export function lengthFactors(
 }
 
 export function roundTripPoints(activity: Activity, targetMeters: number): number {
-  if (activity === "run") return targetMeters <= 6_000 ? 3 : 4;
-  return targetMeters <= 25_000 ? 3 : 4;
+  // Extra vertices make a rounder loop and fewer lollipop stems.
+  if (activity === "run") return targetMeters <= 6_000 ? 4 : 5;
+  return targetMeters <= 25_000 ? 4 : 5;
 }

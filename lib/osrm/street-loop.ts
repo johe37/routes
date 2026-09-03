@@ -1,4 +1,11 @@
-import { bboxOf, destinationPoint } from "@/lib/geo/geodesic";
+import { destinationPoint } from "@/lib/geo/geodesic";
+import {
+  loopCandidateScore,
+  loopDistanceOk,
+  loopShapeOk,
+  refineLoopGeometry,
+  toLoopRoute,
+} from "@/lib/geo/loop-shape";
 import type {
   GenerateInput,
   GeneratedRoute,
@@ -8,10 +15,15 @@ import { GenerateError } from "@/lib/http/errors";
 import { osrmRoute, sleep } from "@/lib/osrm/client";
 import { roundTripPoints } from "@/lib/ors/profiles";
 
-const ACCEPT_LOW = 0.88;
-const ACCEPT_HIGH = 1.12;
 /** Streets are longer than the circle, so ask short. */
 const RADIUS_FACTORS = [0.86, 0.74, 0.62] as const;
+
+function isMissingRoute(err: unknown): boolean {
+  return (
+    err instanceof GenerateError &&
+    (err.code === "ROUTE_NOT_FOUND" || err.code === "START_NOT_SNAPPED")
+  );
+}
 
 function ringWaypoints(
   start: LonLat,
@@ -33,7 +45,7 @@ function ringWaypoints(
 export async function osrmLoop(input: GenerateInput): Promise<GeneratedRoute> {
   const vertices = roundTripPoints(input.activity, input.targetMeters);
   let best: GeneratedRoute | null = null;
-  let bestDelta = Infinity;
+  let bestScore = Infinity;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await sleep(1100);
@@ -47,37 +59,52 @@ export async function osrmLoop(input: GenerateInput): Promise<GeneratedRoute> {
     );
     let routed;
     try {
-      routed = await osrmRoute(waypoints, input.activity);
+      routed = await osrmRoute(waypoints, input.activity, {
+        continueStraight: true,
+      });
     } catch (err) {
-      if (
-        err instanceof GenerateError &&
-        (err.code === "ROUTE_NOT_FOUND" || err.code === "START_NOT_SNAPPED") &&
-        attempt < 2
-      ) {
-        continue;
+      if (!isMissingRoute(err)) throw err;
+      // Dead-end via points can fail with continue_straight; allow a U-turn
+      // and let pruneSkinnyOutAndBacks strip the spur.
+      try {
+        await sleep(1100);
+        routed = await osrmRoute(waypoints, input.activity);
+      } catch (retryErr) {
+        if (isMissingRoute(retryErr) && attempt < 2) continue;
+        throw retryErr;
       }
-      throw err;
     }
-    const route: GeneratedRoute = {
-      id: crypto.randomUUID(),
-      geometry: { type: "LineString", coordinates: routed.coordinates },
-      bbox: bboxOf(routed.coordinates),
-      distanceMeters: routed.distanceMeters,
-      activity: input.activity,
-      shape: "loop",
-      seed,
-      provider: "osrm",
-      attempts: attempt + 1,
-      distanceSoftMiss: false,
-      warnings: [],
-    };
-    const delta = Math.abs(route.distanceMeters - input.targetMeters);
-    if (delta < bestDelta) {
+    const refined = refineLoopGeometry(
+      routed.coordinates,
+      routed.distanceMeters,
+    );
+    if (!refined) continue;
+    const route = toLoopRoute(
+      {
+        id: crypto.randomUUID(),
+        activity: input.activity,
+        shape: "loop",
+        seed,
+        provider: "osrm",
+        attempts: attempt + 1,
+      },
+      refined,
+    );
+    const score = loopCandidateScore(
+      route.distanceMeters,
+      input.targetMeters,
+      refined.retraceRatio,
+    );
+    if (score < bestScore) {
       best = route;
-      bestDelta = delta;
+      bestScore = score;
     }
-    const ratio = route.distanceMeters / input.targetMeters;
-    if (ratio >= ACCEPT_LOW && ratio <= ACCEPT_HIGH) return route;
+    if (
+      loopDistanceOk(route.distanceMeters, input.targetMeters) &&
+      loopShapeOk(refined.retraceRatio)
+    ) {
+      return route;
+    }
   }
 
   if (!best) {
@@ -86,7 +113,9 @@ export async function osrmLoop(input: GenerateInput): Promise<GeneratedRoute> {
   return {
     ...best,
     attempts: 3,
-    distanceSoftMiss: true,
-    warnings: ["Closest loop we found. Try Regenerate or Out-and-back."],
+    distanceSoftMiss: !loopDistanceOk(best.distanceMeters, input.targetMeters),
+    warnings: loopDistanceOk(best.distanceMeters, input.targetMeters)
+      ? []
+      : ["Closest loop we found. Try Regenerate or Out-and-back."],
   };
 }

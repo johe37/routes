@@ -20,6 +20,7 @@ function profileHost(activity: Activity): string {
 export async function osrmRoute(
   coords: LonLat[],
   activity: Activity,
+  opts?: { continueStraight?: boolean },
 ): Promise<StreetRoute> {
   if (coords.length < 2) {
     throw new GenerateError("VALIDATION", "Need at least two points to route.");
@@ -27,9 +28,10 @@ export async function osrmRoute(
 
   const path = coords.map(([lon, lat]) => `${lon},${lat}`).join(";");
   const radiuses = coords.map(() => "1500").join(";");
+  const extra = opts?.continueStraight ? "&continue_straight=true" : "";
   const url =
     `${profileHost(activity)}/route/v1/driving/${path}` +
-    `?overview=full&geometries=geojson&steps=false&radiuses=${radiuses}`;
+    `?overview=full&geometries=geojson&steps=false&radiuses=${radiuses}${extra}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
