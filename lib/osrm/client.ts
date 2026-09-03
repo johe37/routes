@@ -5,7 +5,7 @@ import { GenerateError } from "@/lib/http/errors";
 const TIMEOUT_MS = 8_000;
 const USER_AGENT =
   process.env.ROUTING_USER_AGENT ??
-  "Loop-routeGenerator/0.1 (personal running app)";
+  "Routes/0.1 (personal running app)";
 
 export interface StreetRoute {
   coordinates: LonLat[];

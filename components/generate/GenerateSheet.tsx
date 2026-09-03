@@ -120,8 +120,8 @@ export function GenerateSheet({
       ) : (
         <div className="sheet-body">
           <div className="sheet-kicker">
-            <span className="wordmark">Loop</span>
-            <span className="muted">Distance routes</span>
+            <span className="wordmark">Routes</span>
+            <span className="muted">Run or bike</span>
           </div>
 
           <Segmented

@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Loop",
-    short_name: "Loop",
+    name: "Routes",
+    short_name: "Routes",
     description: "Generate a running or cycling route of the distance you want.",
     start_url: "/",
     display: "standalone",

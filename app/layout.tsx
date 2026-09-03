@@ -8,12 +8,12 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Loop — distance routes",
+  title: "Routes",
   description:
     "Generate a running or cycling route of the distance you want.",
   appleWebApp: {
     capable: true,
-    title: "Loop",
+    title: "Routes",
     statusBarStyle: "default",
   },
 };
